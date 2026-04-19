@@ -262,7 +262,7 @@ class Transaction(Base):
     order = relationship("Order", back_populates="transactions")
     initiator = relationship("User", back_populates="transactions_as_initiator", foreign_keys=[initiator_id])
     counterparty = relationship("User", back_populates="transactions_as_counterparty", foreign_keys=[counterparty_id])
-    resolver = relationship("User", backref="resolved_transactions")
+    resolver = relationship("User", foreign_keys=[resolved_by], backref="resolved_transactions")
 
 
 class AuditLog(Base):

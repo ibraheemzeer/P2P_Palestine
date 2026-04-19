@@ -53,7 +53,7 @@ async def register(
     new_user = User(
         username=user_data.username,
         email=user_data.email,
-        hashed_password=hashed_password,
+        password_hash=hashed_password,
         role=UserRole.USER,  # Default role is USER
         public_display_name=user_data.public_display_name,
         is_active=True,

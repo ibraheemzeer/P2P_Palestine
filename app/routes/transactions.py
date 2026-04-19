@@ -3,7 +3,7 @@ Transaction routes for P2P Palestine.
 Handles escrow matching, locking, releasing, and dispute resolution.
 All financial operations are wrapped in database transactions for ACID compliance.
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -146,7 +146,7 @@ async def lock_transaction(
     # Update status
     old_status = transaction.status
     transaction.status = TransactionStatus.ESCROW_LOCKED
-    transaction.locked_at = datetime.utcnow()
+    transaction.locked_at = datetime.now(timezone.utc)
     
     # Create audit log
     audit_log = AuditLog(
@@ -192,7 +192,7 @@ async def release_transaction(
     # Update status
     old_status = transaction.status
     transaction.status = TransactionStatus.COMPLETED
-    transaction.completed_at = datetime.utcnow()
+    transaction.completed_at = datetime.now(timezone.utc)
     
     # Update order status
     order = await db.get(Order, transaction.order_id)
@@ -255,7 +255,7 @@ async def create_dispute(
     old_status = transaction.status
     transaction.status = TransactionStatus.DISPUTED
     transaction.dispute_reason = request.reason
-    transaction.disputed_at = datetime.utcnow()
+    transaction.disputed_at = datetime.now(timezone.utc)
     
     # Create audit log
     audit_log = AuditLog(
@@ -312,14 +312,14 @@ async def resolve_dispute(
         # Refund logic would go here (return funds to buyer)
     else:  # complete
         transaction.status = TransactionStatus.COMPLETED
-        transaction.completed_at = datetime.utcnow()
+        transaction.completed_at = datetime.now(timezone.utc)
         # Update order status
         order = await db.get(Order, transaction.order_id)
         if order:
             order.status = OrderStatus.COMPLETED
     
     transaction.dispute_resolution = request.reason
-    transaction.resolved_at = datetime.utcnow()
+    transaction.resolved_at = datetime.now(timezone.utc)
     
     # Create audit log
     audit_log = AuditLog(
@@ -361,7 +361,7 @@ async def update_exchange_rate(
     if existing_rate:
         existing_rate.rate = rate_data.rate
         existing_rate.updated_by = current_admin.id
-        existing_rate.updated_at = datetime.utcnow()
+        existing_rate.updated_at = datetime.now(timezone.utc)
         rate_obj = existing_rate
     else:
         rate_obj = ExchangeRate(
