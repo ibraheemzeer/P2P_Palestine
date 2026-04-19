@@ -13,9 +13,9 @@ from app.core.auth import (
     authenticate_user,
     get_current_user
 )
+from app.core.rate_limiter import limiter
 from app.models import User, UserRole
 from app.schemas import UserCreate, Token, UserResponse
-from app.core.rate_limiter import limiter
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -30,7 +30,7 @@ async def register(
     """
     Register a new user.
     Returns JWT token upon successful registration.
-    Rate Limit: 5 requests per minute
+    Rate limited: 5 requests per minute
     """
     # Check if username already exists
     result = await db.execute(select(User).where(User.username == user_data.username))
@@ -83,7 +83,7 @@ async def login(
     """
     Login with username and password.
     Returns JWT token.
-    Rate Limit: 10 requests per minute
+    Rate limited: 10 requests per minute
     """
     user = await authenticate_user(db, form_data.username, form_data.password)
     if not user:
@@ -115,6 +115,6 @@ async def get_current_user_info(
 ):
     """
     Get current authenticated user information.
-    Rate Limit: 30 requests per minute
+    Rate limited: 30 requests per minute
     """
     return current_user

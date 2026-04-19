@@ -1,102 +1,130 @@
+"""
+Test fixtures and configuration for P2P Palestine tests.
+Provides async database sessions, test client, and sample data.
+"""
 import asyncio
 import pytest
 from typing import AsyncGenerator, Generator
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from httpx import AsyncClient, ASGITransport
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.main import app
-from app.core.database import get_db
-from app.models import Base, User, UserRole
+from app.core.database import get_db, Base
+from app.models import User, UserRole
 from app.core.security import get_password_hash
 
-# إعداد قاعدة بيانات اختبارية في الذاكرة (SQLite)
-SQLALCHEMY_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+# Test database URL (using SQLite for simplicity in tests)
+TEST_DATABASE_URL = "sqlite+aiosqlite:///./test_p2p.db"
 
-engine = create_async_engine(
-    SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
-)
-
-AsyncTestingSessionLocal = async_sessionmaker(
-    engine, class_=AsyncSession, expire_on_commit=False
-)
-
-async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
-    async with AsyncTestingSessionLocal() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
 
 @pytest.fixture(scope="session")
-def event_loop():
-    """إنشاء حلقة أحداث للاختبارات غير المتزامنة."""
+def event_loop() -> Generator:
+    """Create an instance of the default event loop for each test session."""
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop
     loop.close()
 
+
 @pytest.fixture(scope="function")
-async def db_session() -> AsyncGenerator[AsyncSession, None]:
-    """إنشاء قاعدة بيانات جديدة لكل اختبار."""
+async def test_engine():
+    """Create a test database engine."""
+    engine = create_async_engine(
+        TEST_DATABASE_URL,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-
-    async with AsyncTestingSessionLocal() as session:
-        yield session
-
+    
+    yield engine
+    
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+    
+    await engine.dispose()
+
+
+@pytest.fixture(scope="function")
+async def db_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
+    """Create a fresh database session for each test."""
+    async_session_maker = async_sessionmaker(
+        test_engine,
+        class_=AsyncSession,
+        expire_on_commit=False
+    )
+    
+    async with async_session_maker() as session:
+        yield session
+
 
 @pytest.fixture(scope="function")
 async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
-    """عميل اختباري لـ FastAPI مع تجاوز الاعتماديات."""
-    app.dependency_overrides[get_db] = lambda: db_session
-
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test"
-    ) as ac:
+    """Create a test client with overridden database dependency."""
+    
+    async def override_get_db():
+        yield db_session
+    
+    app.dependency_overrides[get_db] = override_get_db
+    
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
-
+    
     app.dependency_overrides.clear()
+
 
 @pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
-    """مستخدم عادي للتجربة."""
+    """Create a test user."""
     user = User(
         username="testuser",
         email="test@example.com",
-        password_hash=get_password_hash("password123"),
+        hashed_password=get_password_hash("testpassword123"),
         role=UserRole.USER,
-        public_display_name="Trader_001"
+        is_active=True,
+        is_verified=False
     )
     db_session.add(user)
     await db_session.commit()
     await db_session.refresh(user)
     return user
 
+
 @pytest.fixture
-async def admin_user(db_session: AsyncSession) -> User:
-    """مستخدم مسؤول للتجربة."""
-    user = User(
-        username="admin_master",
-        email="admin@p2p.com",
-        password_hash=get_password_hash("admin123"),
+async def test_admin(db_session: AsyncSession) -> User:
+    """Create a test admin user."""
+    admin = User(
+        username="adminuser",
+        email="admin@example.com",
+        hashed_password=get_password_hash("adminpassword123"),
         role=UserRole.ADMIN,
-        public_display_name="Admin_Support"
+        is_active=True,
+        is_verified=True
     )
-    db_session.add(user)
+    db_session.add(admin)
     await db_session.commit()
-    await db_session.refresh(user)
-    return user
+    await db_session.refresh(admin)
+    return admin
+
 
 @pytest.fixture
-def auth_headers(test_user: User) -> dict:
-    """رؤوس المصادقة الأساسية."""
-    return {"Authorization": "Bearer dummy_token_for_fixture"}
+def sample_user_data() -> dict:
+    """Sample user registration data."""
+    return {
+        "username": "newuser",
+        "email": "newuser@example.com",
+        "password": "newpassword123",
+        "public_display_name": "New User"
+    }
+
+
+@pytest.fixture
+def sample_login_data() -> dict:
+    """Sample login data."""
+    return {
+        "username": "testuser",
+        "password": "testpassword123"
+    }

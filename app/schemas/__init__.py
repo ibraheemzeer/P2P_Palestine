@@ -348,3 +348,19 @@ class PaginatedResponse(BaseModel):
     total: int
     skip: int
     limit: int
+
+
+# =============================================================================
+# Dispute & Transaction Status Update Schemas
+# =============================================================================
+
+class DisputeRequest(BaseModel):
+    """Schema for opening or resolving a dispute."""
+    reason: str = Field(..., min_length=10, max_length=500)
+    resolution: Optional[str] = None  # "COMPLETE" or "REFUND" (for admin resolution)
+
+
+class TransactionStatusUpdate(BaseModel):
+    """Schema for updating transaction status."""
+    status: TransactionStatus
+    reason: Optional[str] = None

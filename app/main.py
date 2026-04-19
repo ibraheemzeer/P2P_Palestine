@@ -5,16 +5,14 @@ Escrow-based Crypto/Fiat Exchange Platform
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
-from slowapi import _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
 
 from app.core.database import async_engine, get_db, Base, init_db
 from app.core.config import get_settings
 from app.core.rate_limiter import limiter
-from app.routes import auth, orders, transactions
+from app.routes import auth, orders, transactions, admin
 
 settings = get_settings()
 
@@ -39,13 +37,25 @@ app = FastAPI(
 # Add Rate Limiter to app state
 app.state.limiter = limiter
 
-# Add exception handler for rate limit exceeded
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Custom exception handler for rate limiting
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": "Too many requests",
+            "message": "Rate limit exceeded. Please try again later.",
+            "limit": str(exc.limit.limit)
+        }
+    )
+
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_HOSTS.split(",") if settings.ALLOWED_HOSTS else ["*"],
+    allow_origins=["*"],  # In production, specify exact origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -81,10 +91,11 @@ async def health_check(db: AsyncSession = Depends(get_db)):
         }
 
 
-# Include routers with API versioning prefix
+# Include routers with API versioning
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(orders.router, prefix="/api/v1")
 app.include_router(transactions.router, prefix="/api/v1")
+app.include_router(admin.router, prefix="/api/v1")
 
 
 if __name__ == "__main__":

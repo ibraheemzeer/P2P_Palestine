@@ -1,33 +1,29 @@
 """
-Transaction routes for P2P Palestine.
-Handles escrow matching, locking, releasing, and dispute resolution.
-All financial operations are wrapped in database transactions for ACID compliance.
+Transaction Routes for P2P Palestine Escrow System
+Handles matching, locking, releasing, and dispute resolution
 """
-from datetime import datetime, timezone
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select
+from typing import List
 
 from app.core.database import get_db
 from app.core.auth import get_current_user, get_current_admin
-from app.core.commission_engine import calculate_commission
-from app.models import User, Order, Transaction, ExchangeRate, AuditLog, OrderStatus, TransactionStatus, UserRole
-from app.schemas import (
+from app.models import User, Order, Transaction, AuditLog, ExchangeRate
+from app.schemas.transaction import (
     TransactionCreate, 
     TransactionResponse, 
-    TransactionLockRequest,
-    TransactionReleaseRequest,
-    DisputeRequest,
-    ExchangeRateCreate,
-    ExchangeRateResponse,
-    AuditLogResponse
+    TransactionStatusUpdate,
+    DisputeRequest
 )
+from app.core.commission_engine import calculate_commission
+from app.core.security import log_audit_action
+from datetime import datetime
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
 
-@router.post("/match/{order_id}", response_model=TransactionResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/match/{order_id}", response_model=TransactionResponse)
 async def match_order(
     order_id: int,
     current_user: User = Depends(get_current_user),
@@ -42,411 +38,253 @@ async def match_order(
     order = result.scalar_one_or_none()
     
     if not order:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+        raise HTTPException(status_code=404, detail="Order not found")
     
-    if order.status != OrderStatus.ACTIVE:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Order is not active. Current status: {order.status}"
-        )
+    if order.status != "ACTIVE":
+        raise HTTPException(status_code=400, detail=f"Order is not available. Status: {order.status}")
     
-    if order.creator_id == current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="You cannot match your own order"
-        )
+    if order.user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot match your own order")
     
-    # Determine roles
+    # Determine buyer and seller
     if order.order_type == "BUY":
-        # User matching a BUY order is the SELLER
-        seller = current_user
-        buyer = await db.get(User, order.creator_id)
-    else:
-        # User matching a SELL order is the BUYER
         buyer = current_user
-        seller = await db.get(User, order.creator_id)
+        seller = order.user
+    else:  # SELL
+        seller = current_user
+        buyer = order.user
     
-    if not buyer or not seller:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    
-    # Get exchange rate
-    result = await db.execute(
+    # Get current exchange rate
+    rate_result = await db.execute(
         select(ExchangeRate).where(ExchangeRate.currency == order.currency)
     )
-    exchange_rate_obj = result.scalar_one_or_none()
+    exchange_rate_obj = rate_result.scalar_one_or_none()
     exchange_rate = exchange_rate_obj.rate if exchange_rate_obj else 1.0
     
     # Calculate commissions
-    base_amount = order.amount  # Assuming this is the base amount in USDT
+    base_amount = order.amount  # Assuming order has amount field
     commission_calc = calculate_commission(base_amount, order.commission)
     
-    # Create transaction
-    transaction = Transaction(
-        order_id=order.id,
-        buyer_id=buyer.id,
-        seller_id=seller.id,
-        amount=base_amount,
-        currency=order.currency,
-        exchange_rate=exchange_rate,
-        seller_commission=order.commission,
-        platform_fee_buyer=commission_calc.platform_fee_buyer,
-        platform_fee_seller=commission_calc.platform_fee_seller,
-        buyer_pays=commission_calc.buyer_pays,
-        seller_receives=commission_calc.seller_receives,
-        status=TransactionStatus.MATCHED,
-        blockchain_network=order.blockchain_network
-    )
-    
-    # Update order status
-    order.status = OrderStatus.LOCKED
-    
-    # Create audit log
-    audit_log = AuditLog(
-        user_id=current_user.id,
-        action="MATCH_ORDER",
-        details={
-            "order_id": order.id,
-            "transaction_amount": base_amount,
-            "buyer_id": buyer.id,
-            "seller_id": seller.id
-        }
-    )
-    
+    # Create transaction within a database transaction for ACID compliance
     async with db.begin():
+        # Update order status
+        order.status = "LOCKED"
+        
+        # Create transaction record
+        transaction = Transaction(
+            buyer_id=buyer.id,
+            seller_id=seller.id,
+            order_id=order.id,
+            amount=base_amount,
+            currency=order.currency,
+            blockchain_network=order.blockchain_network,
+            exchange_rate=exchange_rate,
+            buyer_pays=commission_calc["buyer_pays"],
+            seller_receives=commission_calc["seller_receives"],
+            platform_fee=commission_calc["platform_fee_total"],
+            status="MATCHED"
+        )
+        
         db.add(transaction)
-        db.add(audit_log)
-        # Order status update is tracked automatically
+        await db.flush()  # Get transaction ID
+        
+        # Log audit
+        await log_audit_action(
+            db=db,
+            user_id=current_user.id,
+            action="TRANSACTION_MATCHED",
+            details=f"Transaction {transaction.id} created from order {order_id}"
+        )
     
-    await db.refresh(transaction)
     return transaction
 
 
 @router.post("/{transaction_id}/lock", response_model=TransactionResponse)
-async def lock_transaction(
+async def lock_escrow(
     transaction_id: int,
-    request: TransactionLockRequest,
-    current_admin: User = Depends(get_current_admin),
+    current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Admin action: Lock escrow after confirming funds are received.
-    Moves transaction from MATCHED to ESCROW_LOCKED.
+    Moves status from MATCHED to ESCROW_LOCKED.
     """
-    transaction = await db.get(Transaction, transaction_id)
-    
-    if not transaction:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
-    
-    if transaction.status != TransactionStatus.MATCHED:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Transaction is not in MATCHED status. Current: {transaction.status}"
+    async with db.begin():
+        result = await db.execute(
+            select(Transaction).where(Transaction.id == transaction_id)
+        )
+        transaction = result.scalar_one_or_none()
+        
+        if not transaction:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+        
+        if transaction.status != "MATCHED":
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Transaction must be in MATCHED status. Current: {transaction.status}"
+            )
+        
+        transaction.status = "ESCROW_LOCKED"
+        
+        # Log audit
+        await log_audit_action(
+            db=db,
+            user_id=current_user.id,
+            action="ESCROW_LOCKED",
+            details=f"Admin locked transaction {transaction_id}"
         )
     
-    # Update status
-    old_status = transaction.status
-    transaction.status = TransactionStatus.ESCROW_LOCKED
-    transaction.locked_at = datetime.now(timezone.utc)
-    
-    # Create audit log
-    audit_log = AuditLog(
-        user_id=current_admin.id,
-        action="LOCK_ESCROW",
-        details={
-            "transaction_id": transaction_id,
-            "old_status": old_status.value,
-            "new_status": transaction.status.value,
-            "confirmed_by_admin": current_admin.username
-        }
-    )
-    
-    async with db.begin():
-        db.add(audit_log)
-    
-    await db.refresh(transaction)
     return transaction
 
 
 @router.post("/{transaction_id}/release", response_model=TransactionResponse)
-async def release_transaction(
+async def release_escrow(
     transaction_id: int,
-    request: TransactionReleaseRequest,
-    current_admin: User = Depends(get_current_admin),
+    current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Admin action: Release funds and complete the transaction.
-    Moves transaction from ESCROW_LOCKED to COMPLETED.
+    Moves status from ESCROW_LOCKED to COMPLETED.
     """
-    transaction = await db.get(Transaction, transaction_id)
-    
-    if not transaction:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
-    
-    if transaction.status != TransactionStatus.ESCROW_LOCKED:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Transaction is not locked. Current: {transaction.status}"
+    async with db.begin():
+        result = await db.execute(
+            select(Transaction).where(Transaction.id == transaction_id)
+        )
+        transaction = result.scalar_one_or_none()
+        
+        if not transaction:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+        
+        if transaction.status != "ESCROW_LOCKED":
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Transaction must be in ESCROW_LOCKED status. Current: {transaction.status}"
+            )
+        
+        transaction.status = "COMPLETED"
+        transaction.completed_at = datetime.utcnow()
+        
+        # Log audit
+        await log_audit_action(
+            db=db,
+            user_id=current_user.id,
+            action="TRANSACTION_COMPLETED",
+            details=f"Admin released funds for transaction {transaction_id}"
         )
     
-    # Update status
-    old_status = transaction.status
-    transaction.status = TransactionStatus.COMPLETED
-    transaction.completed_at = datetime.now(timezone.utc)
-    
-    # Update order status
-    order = await db.get(Order, transaction.order_id)
-    if order:
-        order.status = OrderStatus.COMPLETED
-    
-    # Create audit log
-    audit_log = AuditLog(
-        user_id=current_admin.id,
-        action="RELEASE_FUNDS",
-        details={
-            "transaction_id": transaction_id,
-            "old_status": old_status.value,
-            "new_status": transaction.status.value,
-            "released_by_admin": current_admin.username,
-            "buyer_received": transaction.seller_receives,
-            "platform_fee_total": transaction.platform_fee_buyer + transaction.platform_fee_seller
-        }
-    )
-    
-    async with db.begin():
-        db.add(audit_log)
-    
-    await db.refresh(transaction)
     return transaction
 
 
 @router.post("/{transaction_id}/dispute", response_model=TransactionResponse)
 async def create_dispute(
     transaction_id: int,
-    request: DisputeRequest,
+    dispute_request: DisputeRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Create a dispute on a transaction.
-    Can be initiated by buyer or seller, or admin.
+    User or Admin action: Open a dispute for a transaction.
+    Moves status to DISPUTED.
     """
-    transaction = await db.get(Transaction, transaction_id)
-    
-    if not transaction:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
-    
-    if transaction.status in [TransactionStatus.COMPLETED, TransactionStatus.DISPUTED]:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot dispute transaction in {transaction.status} status"
+    async with db.begin():
+        result = await db.execute(
+            select(Transaction).where(Transaction.id == transaction_id)
+        )
+        transaction = result.scalar_one_or_none()
+        
+        if not transaction:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+        
+        if transaction.status in ["COMPLETED", "DISPUTED"]:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Cannot dispute transaction in {transaction.status} status"
+            )
+        
+        transaction.status = "DISPUTED"
+        transaction.dispute_reason = dispute_request.reason
+        
+        # Log audit
+        await log_audit_action(
+            db=db,
+            user_id=current_user.id,
+            action="DISPUTE_OPENED",
+            details=f"Dispute opened for transaction {transaction_id}: {dispute_request.reason}"
         )
     
-    # Check if user is involved in transaction
-    if current_user.id not in [transaction.buyer_id, transaction.seller_id]:
-        # Only admin can dispute without being involved
-        if current_user.role != UserRole.ADMIN:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only involved parties or admin can create disputes"
-            )
-    
-    # Update status
-    old_status = transaction.status
-    transaction.status = TransactionStatus.DISPUTED
-    transaction.dispute_reason = request.reason
-    transaction.disputed_at = datetime.now(timezone.utc)
-    
-    # Create audit log
-    audit_log = AuditLog(
-        user_id=current_user.id,
-        action="CREATE_DISPUTE",
-        details={
-            "transaction_id": transaction_id,
-            "old_status": old_status.value,
-            "new_status": transaction.status.value,
-            "reason": request.reason,
-            "initiated_by": current_user.username
-        }
-    )
-    
-    async with db.begin():
-        db.add(audit_log)
-    
-    await db.refresh(transaction)
     return transaction
 
 
 @router.post("/{transaction_id}/resolve", response_model=TransactionResponse)
 async def resolve_dispute(
     transaction_id: int,
-    request: DisputeRequest,
-    action: str,  # "refund" or "complete"
-    current_admin: User = Depends(get_current_admin),
+    dispute_request: DisputeRequest,
+    current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Admin action: Resolve a dispute by either refunding or completing the transaction.
+    Admin action: Resolve a dispute by either completing or refunding.
     """
-    transaction = await db.get(Transaction, transaction_id)
-    
-    if not transaction:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
-    
-    if transaction.status != TransactionStatus.DISPUTED:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Transaction is not in dispute. Current: {transaction.status}"
-        )
-    
-    if action not in ["refund", "complete"]:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Action must be 'refund' or 'complete'"
-        )
-    
-    # Update status based on action
-    old_status = transaction.status
-    if action == "refund":
-        transaction.status = TransactionStatus.REFUNDED
-        # Refund logic would go here (return funds to buyer)
-    else:  # complete
-        transaction.status = TransactionStatus.COMPLETED
-        transaction.completed_at = datetime.now(timezone.utc)
-        # Update order status
-        order = await db.get(Order, transaction.order_id)
-        if order:
-            order.status = OrderStatus.COMPLETED
-    
-    transaction.dispute_resolution = request.reason
-    transaction.resolved_at = datetime.now(timezone.utc)
-    
-    # Create audit log
-    audit_log = AuditLog(
-        user_id=current_admin.id,
-        action="RESOLVE_DISPUTE",
-        details={
-            "transaction_id": transaction_id,
-            "old_status": old_status.value,
-            "new_status": transaction.status.value,
-            "action_taken": action,
-            "resolution": request.reason,
-            "resolved_by": current_admin.username
-        }
-    )
-    
     async with db.begin():
-        db.add(audit_log)
-    
-    await db.refresh(transaction)
-    return transaction
-
-
-# Admin Exchange Rate Management
-@router.post("/admin/exchange-rates", response_model=ExchangeRateResponse, status_code=status.HTTP_201_CREATED)
-async def update_exchange_rate(
-    rate_data: ExchangeRateCreate,
-    current_admin: User = Depends(get_current_admin),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Admin action: Update daily exchange rate for a currency.
-    """
-    # Check if rate exists
-    result = await db.execute(
-        select(ExchangeRate).where(ExchangeRate.currency == rate_data.currency)
-    )
-    existing_rate = result.scalar_one_or_none()
-    
-    if existing_rate:
-        existing_rate.rate = rate_data.rate
-        existing_rate.updated_by = current_admin.id
-        existing_rate.updated_at = datetime.now(timezone.utc)
-        rate_obj = existing_rate
-    else:
-        rate_obj = ExchangeRate(
-            currency=rate_data.currency,
-            rate=rate_data.rate,
-            updated_by=current_admin.id
-        )
-        db.add(rate_obj)
-    
-    # Create audit log
-    audit_log = AuditLog(
-        user_id=current_admin.id,
-        action="UPDATE_EXCHANGE_RATE",
-        details={
-            "currency": rate_data.currency,
-            "new_rate": rate_data.rate,
-            "updated_by": current_admin.username
-        }
-    )
-    
-    async with db.begin():
-        db.add(audit_log)
-    
-    await db.refresh(rate_obj)
-    return rate_obj
-
-
-@router.get("/admin/exchange-rates", response_model=List[ExchangeRateResponse])
-async def get_all_exchange_rates(
-    current_admin: User = Depends(get_current_admin),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Admin action: Get all current exchange rates.
-    """
-    result = await db.execute(select(ExchangeRate))
-    rates = result.scalars().all()
-    return rates
-
-
-@router.get("/{transaction_id}", response_model=TransactionResponse)
-async def get_transaction(
-    transaction_id: int,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Get a specific transaction by ID.
-    Regular users can only see transactions they're involved in.
-    Admins can see all transactions.
-    """
-    transaction = await db.get(Transaction, transaction_id)
-    
-    if not transaction:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
-    
-    # Check permissions
-    if current_user.role != UserRole.ADMIN:
-        if current_user.id not in [transaction.buyer_id, transaction.seller_id]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You can only view your own transactions"
-            )
-    
-    return transaction
-
-
-@router.get("", response_model=List[TransactionResponse])
-async def get_user_transactions(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Get all transactions for the current user.
-    Admins see all transactions, regular users see only their own.
-    """
-    if current_user.role == UserRole.ADMIN:
-        result = await db.execute(select(Transaction))
-    else:
         result = await db.execute(
-            select(Transaction).where(
-                (Transaction.buyer_id == current_user.id) | 
-                (Transaction.seller_id == current_user.id)
+            select(Transaction).where(Transaction.id == transaction_id)
+        )
+        transaction = result.scalar_one_or_none()
+        
+        if not transaction:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+        
+        if transaction.status != "DISPUTED":
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Transaction is not in DISPUTED status. Current: {transaction.status}"
             )
+        
+        # Determine resolution based on request type
+        if dispute_request.resolution == "COMPLETE":
+            transaction.status = "COMPLETED"
+            transaction.completed_at = datetime.utcnow()
+            action = "DISPUTE_RESOLVED_COMPLETE"
+        elif dispute_request.resolution == "REFUND":
+            transaction.status = "REFUNDED"
+            action = "DISPUTE_RESOLVED_REFUND"
+        else:
+            raise HTTPException(status_code=400, detail="Invalid resolution type")
+        
+        # Log audit
+        await log_audit_action(
+            db=db,
+            user_id=current_user.id,
+            action=action,
+            details=f"Admin resolved dispute for transaction {transaction_id}"
         )
     
+    return transaction
+
+
+@router.get("/", response_model=List[TransactionResponse])
+async def list_transactions(
+    skip: int = 0,
+    limit: int = 50,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    List transactions. Admins see all, users see only their own.
+    Implements anonymity for non-admin users.
+    """
+    query = select(Transaction)
+    
+    if not current_user.is_admin:
+        # Regular users only see their own transactions
+        query = query.where(
+            (Transaction.buyer_id == current_user.id) | 
+            (Transaction.seller_id == current_user.id)
+        )
+    
+    query = query.offset(skip).limit(limit)
+    result = await db.execute(query)
     transactions = result.scalars().all()
+    
     return transactions

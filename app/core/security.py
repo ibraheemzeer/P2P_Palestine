@@ -3,12 +3,15 @@ Security utilities for P2P Palestine.
 Includes encryption for sensitive data, password hashing, and JWT handling.
 """
 import os
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import datetime, timedelta
+from typing import Optional, TYPE_CHECKING
 
 from cryptography.fernet import Fernet
 from jose import jwt
 from passlib.context import CryptContext
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 # Security settings - should be loaded from environment variables
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
@@ -63,3 +66,37 @@ def verify_token(token: str) -> Optional[dict]:
         return payload
     except Exception:
         return None
+
+
+async def log_audit_action(
+    db: AsyncSession,
+    user_id: int,
+    action: str,
+    details: str,
+    entity_type: Optional[str] = None,
+    entity_id: Optional[int] = None,
+    old_values: Optional[dict] = None,
+    new_values: Optional[dict] = None,
+    ip_address: Optional[str] = None
+):
+    """
+    Log an audit action to the database.
+    This function creates immutable audit logs.
+    """
+    from app.models import AuditLog
+    import json
+    
+    audit_log = AuditLog(
+        user_id=user_id,
+        action=action,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        old_values=json.dumps(old_values) if old_values else None,
+        new_values=json.dumps(new_values) if new_values else None,
+        ip_address=ip_address,
+        details=details
+    )
+    
+    db.add(audit_log)
+    await db.flush()  # Ensure it's saved but don't commit yet
+    return audit_log

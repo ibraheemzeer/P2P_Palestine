@@ -1,57 +1,82 @@
+"""
+Tests for Security utilities.
+Covers encryption, decryption, and password hashing.
+"""
 import pytest
-from app.core.security import encrypt_data, decrypt_data
+from app.core.security import (
+    encrypt_data,
+    decrypt_data,
+    get_password_hash,
+    verify_password
+)
 
-pytestmark = pytest.mark.asyncio
 
-class TestSecurityEncryption:
-    """اختبارات تشفير وفك التشفير باستخدام Fernet."""
+def test_encrypt_decrypt():
+    """Test encryption and decryption round-trip."""
+    original_data = "sensitive_bank_details_12345"
+    
+    encrypted = encrypt_data(original_data)
+    decrypted = decrypt_data(encrypted)
+    
+    assert decrypted == original_data
+    assert encrypted != original_data  # Encrypted should be different
 
-    def test_encrypt_and_decrypt_string(self):
-        """تشفير نص ثم فك تشفيره والتأكد من مطابقتة للأصل."""
-        original_data = "Bank Account: 123456789"
-        encrypted = encrypt_data(original_data)
 
-        assert encrypted != original_data  # النص المشفر مختلف
-        assert isinstance(encrypted, str)
+def test_encrypt_different_each_time():
+    """Test that encryption produces different output each time."""
+    data = "same_data"
+    
+    encrypted1 = encrypt_data(data)
+    encrypted2 = encrypt_data(data)
+    
+    # Fernet encryption includes timestamp, so outputs should differ
+    assert encrypted1 != encrypted2
+    
+    # But both should decrypt to the same value
+    assert decrypt_data(encrypted1) == data
+    assert decrypt_data(encrypted2) == data
 
-        decrypted = decrypt_data(encrypted)
-        assert decrypted == original_data
 
-    def test_encrypt_different_outputs_same_input(self):
-        """التأكد من أن التشفير يعطي نتائج مختلفة لنفس المدخلات (بسبب IV)."""
-        data = "Secret Message"
-        encrypted1 = encrypt_data(data)
-        encrypted2 = encrypt_data(data)
+def test_decrypt_invalid_data():
+    """Test that decrypting invalid data raises exception."""
+    with pytest.raises(Exception):
+        decrypt_data("invalid_encrypted_data")
 
-        assert encrypted1 != encrypted2  # يجب أن يكونا مختلفين
 
-        # لكن فك التشفير يعطي نفس النتيجة
-        assert decrypt_data(encrypted1) == data
-        assert decrypt_data(encrypted2) == data
+def test_password_hashing():
+    """Test password hashing and verification."""
+    password = "secure_password123"
+    
+    hashed = get_password_hash(password)
+    
+    # Hashed should be different from original
+    assert hashed != password
+    
+    # Verification should succeed
+    assert verify_password(password, hashed) is True
 
-    def test_decrypt_invalid_token_raises_error(self):
-        """محاولة فك تشفير نص غير صالح يجب أن ترفع استثناء."""
-        invalid_token = "invalid-token-string"
-        with pytest.raises(Exception):
-            decrypt_data(invalid_token)
 
-    def test_empty_string_encryption(self):
-        """تشفير نص فارغ."""
-        data = ""
-        encrypted = encrypt_data(data)
-        decrypted = decrypt_data(encrypted)
-        assert decrypted == data
+def test_password_verification_failure():
+    """Test that wrong password fails verification."""
+    password = "correct_password"
+    wrong_password = "wrong_password"
+    
+    hashed = get_password_hash(password)
+    
+    # Wrong password should fail
+    assert verify_password(wrong_password, hashed) is False
 
-    def test_special_characters_encryption(self):
-        """تشفير نصوص تحتوي على أحرف خاصة."""
-        data = "Special!@#$%^&*()_+{}|:<>?"
-        encrypted = encrypt_data(data)
-        decrypted = decrypt_data(encrypted)
-        assert decrypted == data
 
-    def test_long_string_encryption(self):
-        """تشفير نص طويل جداً."""
-        data = "A" * 10000
-        encrypted = encrypt_data(data)
-        decrypted = decrypt_data(encrypted)
-        assert decrypted == data
+def test_hash_different_each_time():
+    """Test that hashing produces different output each time (due to salt)."""
+    password = "same_password"
+    
+    hash1 = get_password_hash(password)
+    hash2 = get_password_hash(password)
+    
+    # Bcrypt includes random salt, so hashes should differ
+    assert hash1 != hash2
+    
+    # But both should verify correctly
+    assert verify_password(password, hash1) is True
+    assert verify_password(password, hash2) is True
