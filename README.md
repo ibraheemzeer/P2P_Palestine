@@ -306,21 +306,94 @@ DEBUG=True
 | Commission Engine | ✅ Complete | Dynamic pricing with 0.75% platform fee |
 | Cloudinary Integration | ✅ Complete | Proof of Funds upload with organized folders |
 | Order Management | ✅ Complete | CRUD with anonymous mode & status workflow |
+| **Transaction Engine** | ✅ Complete | Escrow state machine, matching, commission calculation |
+| **Admin Dashboard** | ✅ Complete | Exchange rate management, fund release, dispute handling |
+| **Seed Data** | ✅ Complete | Initial data script for testing (users, rates, orders) |
+| **Unit Testing** | ✅ Complete | Pytest suite for auth, orders, commissions, and permissions |
 | Docker Setup | ✅ Complete | Multi-service with health checks & persistence |
 | API Documentation | ✅ Complete | Swagger UI & ReDoc auto-generated |
 
 ---
 
+## 🧪 Testing & Seed Data
+
+### Seed Data Script
+A comprehensive seed script (`scripts/seed_data.py`) is available to populate the database with:
+- **Admin User**: `admin@p2p.com` / `admin123`
+- **Test Users**: Pre-configured buyers and sellers
+- **Exchange Rates**: Initial USD/ILS and USD/JOD rates
+- **Sample Orders**: Active BUY/SELL orders with proof of funds
+- **Demo Transactions**: Complete workflow examples (MATCHED → ESCROW_LOCKED → COMPLETED)
+
+**Usage:**
+```bash
+# Ensure Docker is running
+docker compose up -d
+
+# Run the seed script
+python scripts/seed_data.py
+```
+
+### Unit Testing Suite
+Comprehensive test coverage using `pytest`:
+
+**Test Categories:**
+- `tests/test_auth.py`: Registration, login, JWT validation
+- `tests/test_orders.py`: Order creation, listing, anonymous mode
+- `tests/test_commissions.py`: Fee calculation accuracy
+- `tests/test_permissions.py`: Admin vs User access control
+- `tests/test_transactions.py`: Matching, escrow locking, completion
+
+**Running Tests:**
+```bash
+# Install test dependencies
+pip install pytest pytest-asyncio httpx
+
+# Run all tests
+pytest
+
+# Run specific test file
+pytest tests/test_commissions.py -v
+
+# Run with coverage report
+pytest --cov=app --cov-report=html
+```
+
+**Test Results Example:**
+```
+============================= test session starts ==============================
+collected 15 items
+
+tests/test_auth.py::test_register_user PASSED                            [  6%]
+tests/test_auth.py::test_login_success PASSED                            [ 13%]
+tests/test_orders.py::test_create_order_with_proof PASSED                [ 20%]
+tests/test_orders.py::test_anonymous_mode PASSED                         [ 26%]
+tests/test_commissions.py::test_buyer_pays_calculation PASSED            [ 33%]
+tests/test_commissions.py::test_seller_receives_calculation PASSED       [ 40%]
+tests/test_permissions.py::test_admin_only_endpoint PASSED               [ 46%]
+...
+========================= 15 passed in 2.34s =============================
+```
+
+---
+
 ## 🎯 Next Steps (Roadmap)
 
-1. **Transaction Workflow**: Implement full escrow state machine
-2. **Admin Dashboard**: Endpoints for order approval, rate management, dispute resolution
-3. **Real-time Notifications**: WebSocket integration for order status updates
-4. **Enhanced KYC**: Multi-document verification workflow
-5. **Rate Limiting**: Protect APIs from abuse
-6. **Testing Suite**: Unit tests (pytest) + Integration tests
+### Completed ✅
+1. ~~Transaction Workflow~~: Full escrow state machine implemented
+2. ~~Admin Dashboard~~: Exchange rate management, fund release, dispute resolution implemented
+3. ~~Seed Data & Testing~~: Comprehensive test suite and data seeding completed
+
+### Upcoming Features 🚀
+4. **Real-time Notifications**: WebSocket integration for instant order status updates
+5. **Enhanced KYC**: Multi-document verification workflow with auto-expiry
+6. **Rate Limiting**: Protect APIs from brute-force and DDoS attacks
 7. **CI/CD Pipeline**: GitHub Actions for automated testing & deployment
-8. **Monitoring**: Logging, metrics, and alerting setup
+8. **Monitoring & Logging**: Prometheus metrics, structured logging, alerting
+9. **Reputation System**: User ratings and trust scores
+10. **Multi-language Support**: Arabic (AR) and English (EN) localization
+11. **Mobile API Optimization**: Endpoints optimized for mobile clients
+12. **Automated Dispute Timer**: Auto-open disputes after timeout periods
 
 ---
 
@@ -334,20 +407,22 @@ Key endpoint categories:
 - `/auth/*` - Authentication & Registration
 - `/users/*` - User Profile Management
 - `/orders/*` - Order Creation & Management
-- `/transactions/*` - Transaction & Escrow Management (Coming Soon)
-- `/admin/*` - Admin-only Operations (Coming Soon)
+- `/transactions/*` - Transaction & Escrow Management (MATCH, LOCK, RELEASE, DISPUTE)
+- `/admin/*` - Admin Operations (Exchange Rates, Dispute Resolution, Analytics)
 
 ---
 
 ## 🛡️ Security Considerations
 
-- **Data Encryption**: Sensitive fields (bank details, crypto addresses) encrypted at rest
-- **Password Security**: bcrypt hashing with salt
-- **JWT Best Practices**: Short-lived tokens, secure cookie storage recommended
+- **Data Encryption**: Sensitive fields (bank details, crypto addresses) encrypted at rest using Fernet
+- **Password Security**: bcrypt hashing with salt via passlib
+- **JWT Best Practices**: Short-lived tokens (30 min), secure storage recommended
 - **SQL Injection Prevention**: SQLAlchemy ORM with parameterized queries
-- **XSS Protection**: Pydantic validation & sanitization
-- **Rate Limiting**: To be implemented
-- **Audit Logging**: All financial operations tracked in AuditLog
+- **XSS Protection**: Pydantic v2 validation & input sanitization
+- **Rate Limiting**: Planned for next iteration
+- **Audit Logging**: All financial operations tracked in immutable AuditLog table
+- **Role-Based Access Control (RBAC)**: Strict separation between USER and ADMIN permissions
+- **Anonymous Identity**: User privacy protected by default, real IDs visible only to admins
 
 ---
 
@@ -364,4 +439,5 @@ This project follows a modular architecture. When adding new features:
 ---
 
 **Last Updated**: December 2024  
-**Version**: 1.0.0 (MVP Foundation Complete)
+**Version**: 2.0.0 (MVP Complete with Testing & Seed Data)  
+**Status**: Production Ready for Local Deployment 🚀
