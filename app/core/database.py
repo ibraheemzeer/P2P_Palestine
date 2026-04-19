@@ -3,8 +3,46 @@ Database session management for P2P Palestine.
 Uses AsyncEngine with asyncpg for asynchronous database operations.
 """
 import os
+from pydantic_settings import BaseSettings
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
+
+
+class Settings(BaseSettings):
+    """Application settings loaded from environment variables."""
+    DATABASE_URL: str = "postgresql://p2p_user:p2p_password@localhost:5432/p2p_palestine_db"
+    SECRET_KEY: str = "your-secret-key-change-in-production"
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    
+    # Cloudinary settings
+    CLOUDINARY_CLOUD_NAME: str = ""
+    CLOUDINARY_API_KEY: str = ""
+    CLOUDINARY_API_SECRET: str = ""
+    
+    # Additional settings from .env (optional)
+    ENCRYPTION_KEY: str = "your-fernet-encryption-key-32-bytes-long!!"
+    APP_NAME: str = "P2P Palestine"
+    DEBUG: bool = True
+    
+    model_config = {
+        "env_file": ".env",
+        "case_sensitive": True,
+        "extra": "ignore"  # Ignore extra fields in .env file
+    }
+
+
+# Global settings instance
+_settings = None
+
+
+def get_settings():
+    """Get application settings (singleton pattern)."""
+    global _settings
+    if _settings is None:
+        _settings = Settings()
+    return _settings
+
 
 # Database URL - reads from environment variable for Docker compatibility
 # Uses postgresql+asyncpg driver for async support
