@@ -216,22 +216,44 @@ class TransactionResponse(TransactionBase):
     """Schema for transaction response."""
     id: int
     order_id: int
-    initiator_id: int
-    counterparty_id: int
-    initiator_masked_identity: str
-    counterparty_masked_identity: str
+    buyer_id: int
+    seller_id: int
+    amount: Decimal
+    currency: Currency
+    exchange_rate: Decimal
+    seller_commission: Decimal
+    platform_fee_buyer: Decimal
+    platform_fee_seller: Decimal
     buyer_pays: Decimal
     seller_receives: Decimal
-    platform_fee: Decimal
     status: TransactionStatus
-    payment_proof_url: Optional[str] = None
-    payment_reference: Optional[str] = None
+    blockchain_network: BlockchainNetwork
+    locked_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    disputed_at: Optional[datetime] = None
+    dispute_reason: Optional[str] = None
+    dispute_resolution: Optional[str] = None
+    resolved_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
-    completed_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
+
+
+class TransactionLockRequest(BaseModel):
+    """Request schema for locking a transaction."""
+    confirmation_notes: Optional[str] = None
+
+
+class TransactionReleaseRequest(BaseModel):
+    """Request schema for releasing a transaction."""
+    release_notes: Optional[str] = None
+
+
+class DisputeRequest(BaseModel):
+    """Request schema for creating/resolving a dispute."""
+    reason: str = Field(..., min_length=10, max_length=500)
 
 
 class TransactionAdminResponse(TransactionBase):

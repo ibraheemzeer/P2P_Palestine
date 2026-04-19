@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     )
     
     # Database
-    DATABASE_URL: str = "postgresql://p2p_user:p2p_password@localhost:5432/p2p_palestine_db"
+    DATABASE_URL: str = "postgresql+asyncpg://p2p_user:p2p_password@localhost:5432/p2p_palestine_db"
     
     # Security
     SECRET_KEY: str = "your-super-secret-key-change-in-production-min-32-chars"
@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
     # Encryption (Fernet key for sensitive data)
-    ENCRYPTION_KEY: str = "your-fernet-encryption-key-32-bytes-long!!"
+    ENCRYPTION_KEY: str = ""  # Will be auto-generated if not provided
     
     # Cloudinary Configuration
     CLOUDINARY_CLOUD_NAME: str = ""
@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     # Application Settings
     APP_NAME: str = "P2P Palestine"
     DEBUG: bool = True
+    ALLOWED_HOSTS: str = "*"  # Comma-separated list of allowed origins
 
 
 @lru_cache()
