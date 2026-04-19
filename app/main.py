@@ -2,6 +2,7 @@
 P2P Palestine - Main FastAPI Application
 Escrow-based Crypto/Fiat Exchange Platform
 """
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi.errors import RateLimitExceeded
@@ -15,11 +16,22 @@ from app.routes import auth, orders, transactions, admin
 
 settings = get_settings()
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup and shutdown events."""
+    # Startup
+    await init_db()
+    yield
+    # Shutdown (cleanup if needed)
+
+
 app = FastAPI(
     title=settings.APP_NAME,
     description="Secure P2P platform for trading USDT against local fiat (USD, ILS, JOD)",
     version="2.0.0",
-    debug=settings.DEBUG
+    debug=settings.DEBUG,
+    lifespan=lifespan
 )
 
 # Add Rate Limiter to app state
@@ -48,12 +60,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize database tables on startup."""
-    await init_db()
 
 
 @app.get("/")

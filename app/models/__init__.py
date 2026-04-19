@@ -1,7 +1,10 @@
 """
 SQLAlchemy models for P2P Palestine.
+Includes Fernet encryption for sensitive data and immutable audit logs.
 """
 import enum
+import json
+import os
 from datetime import datetime
 from decimal import Decimal
 
@@ -15,10 +18,37 @@ from sqlalchemy import (
     Enum,
     Boolean,
     Text,
+    event,
 )
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
+from cryptography.fernet import Fernet
+
+# --- Fernet Encryption Setup ---
+ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
+if not ENCRYPTION_KEY:
+    # Generate and save to .env in production
+    ENCRYPTION_KEY = Fernet.generate_key().decode()
+    
+# Ensure key is bytes
+_encryption_key_bytes = ENCRYPTION_KEY.encode() if isinstance(ENCRYPTION_KEY, str) else ENCRYPTION_KEY
+f = Fernet(_encryption_key_bytes)
+
+def encrypt_data(data: str) -> str:
+    """Encrypt sensitive string data using Fernet."""
+    if not data:
+        return ""
+    return f.encrypt(data.encode()).decode()
+
+def decrypt_data(token: str) -> str:
+    """Decrypt sensitive string data using Fernet."""
+    if not token:
+        return ""
+    try:
+        return f.decrypt(token.encode()).decode()
+    except Exception:
+        return ""  # Return empty if decryption fails
 
 
 class UserRole(enum.Enum):
@@ -64,7 +94,7 @@ class BlockchainNetwork(enum.Enum):
 
 
 class User(Base):
-    """User model with encrypted sensitive data."""
+    """User model with encrypted sensitive data using Fernet."""
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -73,9 +103,9 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     role = Column(Enum(UserRole), default=UserRole.USER, nullable=False)
     
-    # Encrypted sensitive data (only visible to admins)
-    bank_details_encrypted = Column(Text, nullable=True)  # Bank account info
-    wallet_addresses_encrypted = Column(Text, nullable=True)  # Crypto wallet addresses
+    # Encrypted sensitive data (only visible to admins via decryption)
+    _bank_details_encrypted = Column("bank_details_encrypted", Text, nullable=True)
+    _wallet_addresses_encrypted = Column("wallet_addresses_encrypted", Text, nullable=True)
     
     # Public identity (anonymous to other users)
     public_display_name = Column(String(50), nullable=True)
@@ -92,6 +122,41 @@ class User(Base):
     orders = relationship("Order", back_populates="creator", foreign_keys="Order.creator_id")
     transactions_as_initiator = relationship("Transaction", back_populates="initiator", foreign_keys="Transaction.initiator_id")
     transactions_as_counterparty = relationship("Transaction", back_populates="counterparty", foreign_keys="Transaction.counterparty_id")
+
+    # --- Encrypted Property Getters/Setters ---
+    @property
+    def bank_details(self) -> dict:
+        """Decrypt and return bank details as dict."""
+        if not self._bank_details_encrypted:
+            return {}
+        decrypted = decrypt_data(self._bank_details_encrypted)
+        return json.loads(decrypted) if decrypted else {}
+
+    @bank_details.setter
+    def bank_details(self, value: dict):
+        """Encrypt and store bank details."""
+        if not value:
+            self._bank_details_encrypted = None
+            return
+        json_str = json.dumps(value)
+        self._bank_details_encrypted = encrypt_data(json_str)
+
+    @property
+    def wallet_addresses(self) -> dict:
+        """Decrypt and return wallet addresses as dict."""
+        if not self._wallet_addresses_encrypted:
+            return {}
+        decrypted = decrypt_data(self._wallet_addresses_encrypted)
+        return json.loads(decrypted) if decrypted else {}
+
+    @wallet_addresses.setter
+    def wallet_addresses(self, value: dict):
+        """Encrypt and store wallet addresses."""
+        if not value:
+            self._wallet_addresses_encrypted = None
+            return
+        json_str = json.dumps(value)
+        self._wallet_addresses_encrypted = encrypt_data(json_str)
 
     def get_masked_identity(self) -> str:
         """Return masked identity for public display."""
@@ -197,11 +262,14 @@ class Transaction(Base):
     order = relationship("Order", back_populates="transactions")
     initiator = relationship("User", back_populates="transactions_as_initiator", foreign_keys=[initiator_id])
     counterparty = relationship("User", back_populates="transactions_as_counterparty", foreign_keys=[counterparty_id])
-    resolver = relationship("User", backref="resolved_transactions")
+    resolver = relationship("User", foreign_keys=[resolved_by], backref="resolved_transactions")
 
 
 class AuditLog(Base):
-    """Audit log for tracking all financial operations."""
+    """
+    Immutable audit log for tracking all financial operations.
+    Once created, entries CANNOT be updated or deleted (enforced by SQLAlchemy events).
+    """
     __tablename__ = "audit_logs"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -216,3 +284,22 @@ class AuditLog(Base):
     
     # Relationships
     user = relationship("User", backref="audit_logs")
+
+
+# --- IMMUTABLE AUDIT LOG ENFORCEMENT ---
+@event.listens_for(AuditLog, "before_update")
+def prevent_audit_log_update(mapper, connection, target):
+    """Prevent any UPDATE operation on AuditLog entries."""
+    raise Exception(
+        f"IMMUTABLE VIOLATION: AuditLog entry ID {target.id} cannot be updated. "
+        "Audit logs are append-only for compliance."
+    )
+
+
+@event.listens_for(AuditLog, "before_delete")
+def prevent_audit_log_delete(mapper, connection, target):
+    """Prevent any DELETE operation on AuditLog entries."""
+    raise Exception(
+        f"IMMUTABLE VIOLATION: AuditLog entry ID {target.id} cannot be deleted. "
+        "Audit logs are permanent for compliance."
+    )
