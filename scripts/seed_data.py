@@ -167,7 +167,7 @@ async def seed_data():
                 seller_receives_fiat=base_amount * sample_order.price_per_unit * seller_receives_factor, # Total ILS seller gets
                 platform_fee_fiat=(base_amount * sample_order.price_per_unit) * 0.015, # Total platform fee (1.5% of base value)
                 status=TransactionStatus.MATCHED,
-                escrow_lock_expires_at=datetime.utcnow() + timedelta(minutes=15)
+                escrow_lock_expires_at=datetime.now(timezone.utc) + timedelta(minutes=15)
             )
             session.add(tx)
             

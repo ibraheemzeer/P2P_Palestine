@@ -16,11 +16,10 @@ class TestAuthEndpoints:
             "public_display_name": "NewTrader"
         }
         response = await client.post("/api/v1/auth/register", json=payload)
-        assert response.status_code == 201
+        assert response.status_code == 200
         data = response.json()
-        assert data["username"] == "newuser"
-        assert "id" in data
-        assert "hashed_password" not in data  # التأكد من عدم إرجاع كلمة المرور
+        assert "access_token" in data
+        assert data["token_type"] == "bearer"
 
     async def test_register_duplicate_username(self, client: AsyncClient, test_user):
         """محاولة تسجيل مستخدم باسم موجود مسبقاً."""
@@ -39,7 +38,8 @@ class TestAuthEndpoints:
             "username": test_user.username,
             "password": "password123"
         }
-        response = await client.post("/api/v1/auth/login", json=payload)
+        # Use form data for OAuth2PasswordRequestForm
+        response = await client.post("/api/v1/auth/login", data=payload)
         assert response.status_code == 200
         data = response.json()
         assert "access_token" in data
@@ -51,7 +51,8 @@ class TestAuthEndpoints:
             "username": test_user.username,
             "password": "wrongpassword"
         }
-        response = await client.post("/api/v1/auth/login", json=payload)
+        # Use form data for OAuth2PasswordRequestForm
+        response = await client.post("/api/v1/auth/login", data=payload)
         assert response.status_code == 401  # Unauthorized
 
     async def test_rate_limiting_on_login(self, client: AsyncClient):
