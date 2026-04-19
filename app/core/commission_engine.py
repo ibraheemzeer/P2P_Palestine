@@ -14,13 +14,13 @@ from decimal import Decimal, ROUND_HALF_UP
 PLATFORM_FEE_RATE = Decimal("0.0075")
 
 
-def calculate_commission(base_amount: Decimal, seller_commission: Decimal) -> dict:
+def calculate_commission(base_amount: float | Decimal, seller_commission: float | Decimal) -> dict:
     """
     Calculate all financial values for a transaction.
     
     Args:
         base_amount: The base USDT amount being traded
-        seller_commission: Seller's commission rate (0% - 3.5%, e.g., 0.035 for 3.5%)
+        seller_commission: Seller's commission rate (0% - 3.5%, e.g., 0.02 for 2%)
     
     Returns:
         Dictionary with all calculated values
@@ -32,6 +32,12 @@ def calculate_commission(base_amount: Decimal, seller_commission: Decimal) -> di
         - Platform_Fee (per side) = 1000 * 0.0075 = 7.5 USDT
         - Total Platform Profit = 15.0 USDT (1.5%)
     """
+    # Convert to Decimal for precise calculations
+    if not isinstance(base_amount, Decimal):
+        base_amount = Decimal(str(base_amount))
+    if not isinstance(seller_commission, Decimal):
+        seller_commission = Decimal(str(seller_commission))
+    
     # Validate inputs
     if base_amount <= 0:
         raise ValueError("Base amount must be positive")

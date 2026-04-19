@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database Service
+  db:
+    image: postgres:15-alpine
+    container_name: p2p_palestine_db
+    restart: always
+    environment:
+      POSTGRES_DB: p2p_palestine_db
+      POSTGRES_USER: p2p_user
+      POSTGRES_PASSWORD: p2p_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - p2p_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U p2p_user -d p2p_palestine_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # pgAdmin4 for Database Management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: p2p_palestine_pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@p2p.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - "5050:80"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - p2p_network
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+  # FastAPI Application Service
+  api:
+    build: .
+    container_name: p2p_palestine_api
+    restart: always
+    environment:
+      DATABASE_URL: postgresql://p2p_user:p2p_password@db:5432/p2p_palestine_db
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - p2p_network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+networks:
+  p2p_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local

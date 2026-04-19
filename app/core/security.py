@@ -1,6 +1,6 @@
 """
 Security utilities for P2P Palestine.
-Includes encryption for sensitive data and JWT handling.
+Includes encryption for sensitive data, password hashing, and JWT handling.
 """
 import os
 from datetime import datetime, timedelta
@@ -8,15 +8,29 @@ from typing import Optional
 
 from cryptography.fernet import Fernet
 from jose import jwt
+from passlib.context import CryptContext
 
 # Security settings - should be loaded from environment variables
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
+# Password hashing context
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 # Encryption key for sensitive data (bank details, wallet addresses)
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
 fernet = Fernet(ENCRYPTION_KEY.encode())
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a plain password against a hashed password."""
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def get_password_hash(password: str) -> str:
+    """Hash a password using bcrypt."""
+    return pwd_context.hash(password)
 
 
 def encrypt_data(data: str) -> str:
