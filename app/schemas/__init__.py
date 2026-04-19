@@ -99,7 +99,7 @@ class ExchangeRateBase(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     
     target_currency: Currency
-    rate: Decimal = Field(..., gt=0, decimal_places=6)
+    rate: Decimal = Field(..., gt=0)
 
 
 class ExchangeRateCreate(ExchangeRateBase):
@@ -128,9 +128,9 @@ class OrderBase(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     
     order_type: OrderType
-    min_amount: Decimal = Field(..., gt=0, decimal_places=2)
-    max_amount: Decimal = Field(..., gt=0, decimal_places=2)
-    commission: Decimal = Field(..., ge=0, le=0.035, decimal_places=4)  # 0% - 3.5%
+    min_amount: Decimal = Field(..., gt=0)
+    max_amount: Decimal = Field(..., gt=0)
+    commission: Decimal = Field(..., ge=0, le=0.035)  # 0% - 3.5%
     currency: Currency
     blockchain_network: BlockchainNetwork
     
@@ -153,9 +153,9 @@ class OrderUpdate(BaseModel):
     
     status: Optional[OrderStatus] = None
     rejection_reason: Optional[str] = None
-    min_amount: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
-    max_amount: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
-    commission: Optional[Decimal] = Field(None, ge=0, le=0.035, decimal_places=4)
+    min_amount: Optional[Decimal] = Field(None, gt=0)
+    max_amount: Optional[Decimal] = Field(None, gt=0)
+    commission: Optional[Decimal] = Field(None, ge=0, le=0.035)
 
 
 class OrderResponse(OrderBase):
@@ -194,7 +194,7 @@ class TransactionBase(BaseModel):
     """Base transaction schema."""
     model_config = ConfigDict(from_attributes=True)
     
-    base_amount: Decimal = Field(..., gt=0, decimal_places=2)
+    base_amount: Decimal = Field(..., gt=0)
 
 
 class TransactionCreate(TransactionBase):

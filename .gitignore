@@ -1,36 +1,42 @@
 ```
+# Environment variables
+.env
+.env.local
+.env.*
+
 # Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-
-# Dependencies
-.venv/
+.Python
+env/
 venv/
-.env
-.env.local
-*.env.*
-
-# Build artifacts
-dist/
-build/
-*.egg-info/
-
-# Logs
-*.log
-
-# Coverage
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
 .coverage
-coverage/
-htmlcov/
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+*.pot
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+
+# Docker
+.dockerenv
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-*.tmp
 
 # OS
 .DS_Store
