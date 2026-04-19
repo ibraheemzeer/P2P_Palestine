@@ -2,13 +2,17 @@
 P2P Palestine - Main FastAPI Application
 Escrow-based Crypto/Fiat Exchange Platform
 """
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from app.core.database import async_engine, get_db, Base, init_db
 from app.core.config import get_settings
+from app.core.rate_limiter import limiter
 from app.routes import auth, orders, transactions
 
 settings = get_settings()
@@ -19,6 +23,12 @@ app = FastAPI(
     version="2.0.0",
     debug=settings.DEBUG
 )
+
+# Add Rate Limiter to app state
+app.state.limiter = limiter
+
+# Add exception handler for rate limit exceeded
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Configure CORS
 app.add_middleware(

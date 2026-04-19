@@ -1,7 +1,7 @@
 """
 Routes for Authentication (Register, Login)
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -15,18 +15,22 @@ from app.core.auth import (
 )
 from app.models import User, UserRole
 from app.schemas import UserCreate, Token, UserResponse
+from app.core.rate_limiter import limiter
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
 @router.post("/register", response_model=Token)
+@limiter.limit("5/minute")
 async def register(
+    request: Request,
     user_data: UserCreate,
     db: AsyncSession = Depends(get_db)
 ):
     """
     Register a new user.
     Returns JWT token upon successful registration.
+    Rate Limit: 5 requests per minute
     """
     # Check if username already exists
     result = await db.execute(select(User).where(User.username == user_data.username))
@@ -70,13 +74,16 @@ async def register(
 
 
 @router.post("/login", response_model=Token)
+@limiter.limit("10/minute")
 async def login(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Login with username and password.
     Returns JWT token.
+    Rate Limit: 10 requests per minute
     """
     user = await authenticate_user(db, form_data.username, form_data.password)
     if not user:
@@ -101,10 +108,13 @@ async def login(
 
 
 @router.get("/me", response_model=UserResponse)
+@limiter.limit("30/minute")
 async def get_current_user_info(
+    request: Request,
     current_user: User = Depends(get_current_user)
 ):
     """
     Get current authenticated user information.
+    Rate Limit: 30 requests per minute
     """
     return current_user
