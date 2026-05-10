@@ -10,7 +10,7 @@ from typing import List
 from app.core.database import get_db
 from app.core.auth import get_current_admin
 from app.models import User, ExchangeRate, Transaction, Order, AuditLog
-from app.schemas.exchange_rate import ExchangeRateCreate, ExchangeRateResponse
+from app.schemas import ExchangeRateCreate, ExchangeRateResponse
 from app.core.security import log_audit_action
 from datetime import datetime
 

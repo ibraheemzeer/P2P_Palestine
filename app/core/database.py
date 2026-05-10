@@ -45,17 +45,11 @@ def get_settings():
 
 
 # Database URL - reads from environment variable for Docker compatibility
-# Uses postgresql+asyncpg driver for async support
+# Uses sqlite+aiosqlite for local development (no PostgreSQL driver needed)
 SQLALCHEMY_DATABASE_URL = os.getenv(
     "DATABASE_URL", 
-    "postgresql://p2p_user:p2p_password@localhost:5432/p2p_palestine_db"
+    "sqlite+aiosqlite:///./p2p_local.db"
 )
-
-# Convert to async URL if needed
-if not SQLALCHEMY_DATABASE_URL.startswith("postgresql+asyncpg"):
-    SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL.replace(
-        "postgresql://", "postgresql+asyncpg://"
-    )
 
 async_engine = create_async_engine(SQLALCHEMY_DATABASE_URL, echo=False, pool_pre_ping=True)
 AsyncSessionLocal = async_sessionmaker(

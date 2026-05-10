@@ -9,9 +9,7 @@ from typing import Optional, TYPE_CHECKING
 from cryptography.fernet import Fernet
 from jose import jwt
 from passlib.context import CryptContext
-
-if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # Security settings - should be loaded from environment variables
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")

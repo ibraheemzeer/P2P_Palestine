@@ -10,7 +10,7 @@ from typing import List
 from app.core.database import get_db
 from app.core.auth import get_current_user, get_current_admin
 from app.models import User, Order, Transaction, AuditLog, ExchangeRate
-from app.schemas.transaction import (
+from app.schemas import (
     TransactionCreate, 
     TransactionResponse, 
     TransactionStatusUpdate,
