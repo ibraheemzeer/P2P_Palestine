@@ -4,26 +4,33 @@ import { TextField, Button, Box, Typography, Container, Paper, Alert } from '@mu
 import { Link, useNavigate } from 'react-router-dom';
 
 export const RegisterPage: React.FC = () => {
+  const [username, setUsername] = React.useState('');
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [confirmPassword, setConfirmPassword] = React.useState('');
-  const [displayName, setDisplayName] = React.useState('');
+  const [fullName, setFullName] = React.useState('');
   const registerMutation = useRegister();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (password !== confirmPassword) {
       alert('Passwords do not match');
       return;
     }
 
+    if (password.length < 8) {
+      alert('Password must be at least 8 characters long');
+      return;
+    }
+
     try {
-      await registerMutation.mutateAsync({ 
+      await registerMutation.mutateAsync({
+        username,
         email, 
-        password, 
-        public_display_name: displayName 
+        password,
+        full_name: fullName
       });
       navigate('/login', { state: { message: 'Registration successful! Please login.' } });
     } catch (error: any) {
@@ -41,7 +48,7 @@ export const RegisterPage: React.FC = () => {
           
           {registerMutation.isError && (
             <Alert severity="error" sx={{ mb: 2 }}>
-              Registration failed. Email may already be in use.
+              Registration failed. {(error as any)?.response?.data?.detail?.[0]?.msg || 'Email may already be in use.'}
             </Alert>
           )}
 
@@ -50,12 +57,22 @@ export const RegisterPage: React.FC = () => {
               margin="normal"
               required
               fullWidth
-              id="displayName"
-              label="Display Name"
-              name="displayName"
+              id="username"
+              label="Username"
+              name="username"
               autoFocus
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+            />
+            <TextField
+              margin="normal"
+              required
+              fullWidth
+              id="fullName"
+              label="Full Name"
+              name="fullName"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
             />
             <TextField
               margin="normal"

@@ -2,19 +2,20 @@ import api from './api';
 import { User, Order, Transaction, ExchangeRate, ApiResponse } from '../types';
 
 export const authService = {
-  login: async (email: string, password: string) => {
+  login: async (username: string, password: string) => {
     const response = await api.post<ApiResponse<{ access_token: string }>>('/auth/login', {
-      email,
+      username,
       password,
     });
     return response.data;
   },
 
-  register: async (email: string, password: string, public_display_name: string) => {
+  register: async (username: string, email: string, password: string, full_name?: string) => {
     const response = await api.post<ApiResponse<User>>('/auth/register', {
+      username,
       email,
       password,
-      public_display_name,
+      full_name,
     });
     return response.data;
   },
@@ -49,7 +50,7 @@ export const orderService = {
     formData.append('min_amount', orderData.min_amount!.toString());
     formData.append('max_amount', orderData.max_amount!.toString());
     formData.append('commission', orderData.commission!.toString());
-    
+
     if (proofFile) {
       formData.append('proof_of_funds', proofFile);
     }
