@@ -1,11 +1,11 @@
 import React from 'react';
 import { useAuthStore } from '@store/authStore';
-import { useLogin, useRegister } from '@hooks/useQueries';
+import { useLogin } from '@hooks/useQueries';
 import { TextField, Button, Box, Typography, Container, Paper, Alert } from '@mui/material';
 import { Link, useNavigate } from 'react-router-dom';
 
 export const LoginPage: React.FC = () => {
-  const [email, setEmail] = React.useState('');
+  const [username, setUsername] = React.useState('');
   const [password, setPassword] = React.useState('');
   const loginMutation = useLogin();
   const login = useAuthStore((state) => state.login);
@@ -14,15 +14,9 @@ export const LoginPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const response = await loginMutation.mutateAsync({ email, password });
+      const response = await loginMutation.mutateAsync({ username, password });
       if (response.data?.access_token) {
-        const userResponse = await fetch('/api/users/me', {
-          headers: {
-            Authorization: `Bearer ${response.data.access_token}`,
-          },
-        });
-        const user = await userResponse.json();
-        login(user, response.data.access_token);
+        login(response.data, response.data.access_token);
         navigate('/dashboard');
       }
     } catch (error: any) {
@@ -37,7 +31,7 @@ export const LoginPage: React.FC = () => {
           <Typography component="h1" variant="h5" align="center" gutterBottom>
             Sign In to P2P Palestine
           </Typography>
-          
+
           {loginMutation.isError && (
             <Alert severity="error" sx={{ mb: 2 }}>
               {loginMutation.error instanceof Error ? loginMutation.error.message : 'Invalid credentials'}
@@ -49,13 +43,13 @@ export const LoginPage: React.FC = () => {
               margin="normal"
               required
               fullWidth
-              id="email"
-              label="Email Address"
-              name="email"
-              autoComplete="email"
+              id="username"
+              label="Username or Email"
+              name="username"
+              autoComplete="username"
               autoFocus
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
             />
             <TextField
               margin="normal"

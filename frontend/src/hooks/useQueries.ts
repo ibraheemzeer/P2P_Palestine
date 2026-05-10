@@ -4,15 +4,15 @@ import { orderService, transactionService, adminService, authService } from '../
 // Auth Queries
 export const useLogin = () => {
   return useMutation({
-    mutationFn: ({ email, password }: { email: string; password: string }) =>
-      authService.login(email, password),
+    mutationFn: ({ username, password }: { username: string; password: string }) =>
+      authService.login(username, password),
   });
 };
 
 export const useRegister = () => {
   return useMutation({
-    mutationFn: ({ email, password, public_display_name }: { email: string; password: string; public_display_name: string }) =>
-      authService.register(email, password, public_display_name),
+    mutationFn: ({ username, email, password, full_name }: { username: string; email: string; password: string; full_name?: string }) =>
+      authService.register(username, email, password, full_name),
   });
 };
 
